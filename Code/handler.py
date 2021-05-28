@@ -16,9 +16,16 @@ class ParentDataset(abc.ABC):
         self.data = pd.read_csv(file, sep=sep)
         self.rows = len(self.data)
 
+    # def __normalize(self):
+        # Categorize the trustLevel
+        # trust_level_dummies = pd.get_dummies(data['trustLevel'], prefix='trustLevel', dtype=int)
+        # data = pd.concat((trust_level_dummies, data.drop(columns='trustLevel')), axis=1)
+        # data['totalScanTimeInSeconds'] = data['totalScanTimeInSeconds'] / 3600
+
     def get(self, n: int = 1, max_iter: int = 1e6):
         for indices in self.sampling(n, max_iter):
-            yield self.data.values[indices]
+            sample = self.data.iloc[indices]
+            yield sample.iloc[:, :-1].values, sample.iloc[:, -1].values
 
     @abc.abstractmethod
     def sampling(self, n: int, max_iter: int):
@@ -53,6 +60,7 @@ class ImportantSamplingDataset(ParentDataset):
         self.pos_index, self.neg_index = self.__get_pos_neg_index()
 
     def __get_pos_neg_index(self):
+        print(self.data)
         labels = self.data['fraud'].values
         pos_index = np.argwhere(labels == 1)
         neg_index = np.argwhere(labels == 0)

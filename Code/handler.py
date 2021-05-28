@@ -25,7 +25,7 @@ class ParentDataset(abc.ABC):
     def get(self, n: int = 1, max_iter: int = 1e6):
         for indices in self.sampling(n, max_iter):
             sample = self.data.iloc[indices]
-            yield sample.iloc[:, :-1].values, sample.iloc[:, -1].values
+            yield sample.loc[:, self.data.columns != 'fraud'].values, sample['fraud'].values
 
     @abc.abstractmethod
     def sampling(self, n: int, max_iter: int):

@@ -1,15 +1,17 @@
 from sklearn.svm import SVC
-from Code.handler import *
+from handler import *
+from metrics import *
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score
 
 # Initialize the dataset
 train_dataset = ImportantSamplingDataset('../Data/train.csv', sep='|')
 model = SVC(kernel='rbf')
 
 # Configure parameters
-epochs = 100
-batch_size = 30
+epochs = 10
+batch_size = 100
 max_iter = 100
 running_acc = np.zeros(epochs)
 
@@ -25,3 +27,14 @@ for e in range(epochs):
 # Plot the accuracy curve
 plt.plot(running_acc)
 plt.show()
+
+# Testing
+test = pd.read_csv('../Data/test.csv', sep="|")
+label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
+
+y_pred = model.predict(test)
+profit = retailer_profit(label, y_pred)
+print(f"profit:{profit}")
+
+f1 = f1_score(label, y_pred)
+print(f"f1:{f1}")

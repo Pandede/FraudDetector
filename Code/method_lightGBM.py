@@ -8,14 +8,17 @@ from sklearn.metrics import f1_score
 
 # Dataset
 train = pd.read_csv('../Data/train.csv', sep="|")
-test = pd.read_csv('../Data/test.csv', sep="|")
-label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
+# test = pd.read_csv('../Data/test.csv', sep="|")
+# label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
 
 # Training
 folds = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 
 feats = [i for i in train.columns if i != "fraud"]
-sub_preds = np.zeros(test.shape[0])
+
+profit = 0
+f1 = 0
+
 for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train[feats], train['fraud'])):
     train_x, train_y = train[feats].iloc[train_idx], train['fraud'].iloc[train_idx]
     valid_x, valid_y = train[feats].iloc[valid_idx], train['fraud'].iloc[valid_idx]
@@ -37,12 +40,22 @@ for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train[feats], train[
         dtrain = lgb.Dataset(train_x, label=train_y)
         dval = lgb.Dataset(valid_x, label=valid_y, reference=dtrain)
         bst = lgb.train(params, dtrain, num_boost_round=50000,valid_sets=[dtrain,dval], early_stopping_rounds=1000, verbose_eval=100)
-        sub_preds += bst.predict(test[feats], num_iteration=bst.best_iteration) / folds.n_splits
+        # cross validation
+        valid_preds = bst.predict(valid_x[feats], num_iteration=bst.best_iteration)
+        valid_preds = [1 if i > 0.5 else 0 for i in valid_preds]
+        profit += retailer_profit(valid_y, valid_preds) / folds.n_splits
+        f1 += f1_score(valid_y, valid_preds) / folds.n_splits
+        # break
+print(f"profit:{profit}")
+print(f"f1:{f1}")
+
+
+
 # Testing
 # print(label)
-preds = [1 if i > 0.5 else 0 for i in sub_preds]
+# preds = [1 if i > 0.5 else 0 for i in sub_preds]
 # print(preds)
-profit = retailer_profit(label, preds)
-print(f"profit:{profit}")
-f1 = f1_score(label, preds)
-print(f"f1:{f1}")
+# profit = retailer_profit(label, preds)
+# print(f"profit:{profit}")
+# f1 = f1_score(label, preds)
+# print(f"f1:{f1}")

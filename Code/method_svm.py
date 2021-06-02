@@ -4,37 +4,45 @@ from metrics import *
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import f1_score
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.model_selection import StratifiedKFold
 
 # Initialize the dataset
-train_dataset = ImportantSamplingDataset('../Data/train.csv', sep='|')
-model = SVC(kernel='rbf')
-
-# Configure parameters
-epochs = 10
-batch_size = 100
-max_iter = 100
-running_acc = np.zeros(epochs)
+train_dataset = pd.read_csv('../Data/train.csv', sep="|")
+# train_dataset = ImportantSamplingDataset('../Data/train.csv', sep='|')
 
 # Training begin
-for e in range(epochs):
-    print('Epoch %03d' % e)
-    for b, (x, y) in enumerate(train_dataset.get(batch_size, max_iter=max_iter)):
-        model.fit(x, y)
-        pred = model.predict(x)
-        running_acc[e] += np.mean(pred == y) / max_iter
-    print('Average acc. = %.04f' % running_acc[e])
+
+folds = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
+feats = [i for i in train_dataset.columns if i != "fraud"]
+
+profit = 0
+f1 = 0
+for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train_dataset[feats], train_dataset['fraud'])):
+    train_x, train_y = train_dataset[feats].iloc[train_idx], train_dataset['fraud'].iloc[train_idx]
+    valid_x, valid_y = train_dataset[feats].iloc[valid_idx], train_dataset['fraud'].iloc[valid_idx]
+    # print("Train Index:",train_idx,",Val Index:",valid_idx)
+    model = SVC(kernel='rbf')
+    model.fit(train_x, train_y)
+    valid_preds = model.predict(valid_x)
+
+    # cross validation
+    valid_preds = [1 if i > 0.5 else 0 for i in valid_preds]
+    profit += retailer_profit(valid_y, valid_preds) / folds.n_splits
+    f1 += f1_score(valid_y, valid_preds) / folds.n_splits
+
 
 # Plot the accuracy curve
-plt.plot(running_acc)
-plt.show()
+# plt.plot(running_acc)
+# plt.show()
 
 # Testing
-test = pd.read_csv('../Data/test.csv', sep="|")
-label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
+# test = pd.read_csv('../Data/test.csv', sep="|")
+# label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
 
-y_pred = model.predict(test)
-profit = retailer_profit(label, y_pred)
+# y_pred = model.predict(test)
+# profit = retailer_profit(label, y_pred)
 print(f"profit:{profit}")
 
-f1 = f1_score(label, y_pred)
+# f1 = f1_score(label, y_pred)
 print(f"f1:{f1}")

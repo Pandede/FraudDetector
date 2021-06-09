@@ -1,48 +1,49 @@
-from sklearn.svm import SVC
-from handler import *
-from metrics import *
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score
+import pickle
+
+import pandas as pd
 from imblearn.over_sampling import RandomOverSampler
+from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold
+from sklearn.svm import SVC
 
-# Initialize the dataset
-train_dataset = pd.read_csv('../Data/train.csv', sep="|")
-# train_dataset = ImportantSamplingDataset('../Data/train.csv', sep='|')
+from metrics import *
 
-# Training begin
+# Dataset
+train_data = pd.read_csv('../Data/train.csv', sep="|")
+feature_cols = train_data.columns[train_data.columns != 'fraud']
 
+# Settings
 folds = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
-feats = [i for i in train_dataset.columns if i != "fraud"]
+ros = RandomOverSampler(random_state=0)
 
+# Oversampling
+train_feature_resampled, train_target_resampled = ros.fit_resample(train_data[feature_cols], train_data['fraud'])
+
+# Initializing before loops
 profit = 0
 f1 = 0
-for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train_dataset[feats], train_dataset['fraud'])):
-    train_x, train_y = train_dataset[feats].iloc[train_idx], train_dataset['fraud'].iloc[train_idx]
-    valid_x, valid_y = train_dataset[feats].iloc[valid_idx], train_dataset['fraud'].iloc[valid_idx]
-    # print("Train Index:",train_idx,",Val Index:",valid_idx)
-    model = SVC(kernel='rbf')
+params = {
+    'kernel': 'rbf',
+    'decision_function_shape': 'ovo'
+}
+
+for n_fold, (train_idx, validation_idx) in enumerate(folds.split(train_feature_resampled, train_target_resampled)):
+    train_x = train_feature_resampled.iloc[train_idx].values
+    train_y = train_target_resampled.iloc[train_idx].values
+    validation_x = train_feature_resampled.iloc[validation_idx].values
+    validation_y = train_target_resampled.iloc[validation_idx].values
+
+    model = SVC(**params)
     model.fit(train_x, train_y)
-    valid_preds = model.predict(valid_x)
 
-    # cross validation
-    valid_preds = [1 if i > 0.5 else 0 for i in valid_preds]
-    profit += retailer_profit(valid_y, valid_preds) / folds.n_splits
-    f1 += f1_score(valid_y, valid_preds) / folds.n_splits
+    # Cross Validation
+    prediction = model.predict(validation_x)
+    prediction = np.round(prediction)
+    profit += retailer_profit(validation_y, prediction) / folds.n_splits
+    f1 += f1_score(validation_y, prediction) / folds.n_splits
 
+    # Save
+    with open('../Model/SVM/model_%02d.pkl' % n_fold, 'wb') as f:
+        pickle.dump(model, f)
 
-# Plot the accuracy curve
-# plt.plot(running_acc)
-# plt.show()
-
-# Testing
-# test = pd.read_csv('../Data/test.csv', sep="|")
-# label = pd.read_csv('../Data/realclass.csv', sep="|").to_numpy().reshape(-1)
-
-# y_pred = model.predict(test)
-# profit = retailer_profit(label, y_pred)
-print(f"profit:{profit}")
-
-# f1 = f1_score(label, y_pred)
-print(f"f1:{f1}")
+print(f'Profit: {profit}, f1-score: {f1}')

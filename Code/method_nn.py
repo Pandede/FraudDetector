@@ -1,104 +1,111 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from imblearn.over_sampling import RandomOverSampler
+from sklearn.metrics import f1_score
+from sklearn.model_selection import StratifiedKFold
+from torch.utils.data import TensorDataset, DataLoader
+from tqdm import tqdm
+
 from handler import *
 from metrics import *
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import f1_score
-from imblearn.over_sampling import RandomOverSampler
 
-# Initialize the dataset
-# train_dataset = ImportantSamplingDataset('../Data/train.csv', sep='|')
-# Initialize the dataset
-train_dataset = pd.read_csv('../Data/train.csv', sep="|")
-
-# Configure parameters
-epochs = 300
-batch_size = 128
-running_acc = np.zeros(epochs)
-lr = 0.005
 
 # Network
-class binaryClassification(nn.Module):
+class BinaryClassifier(nn.Module):
     def __init__(self):
-        super(binaryClassification, self).__init__()
-        self.layer_1 = nn.Linear(9, 64) 
-        self.layer_2 = nn.Linear(64, 64)
-        self.layer_out = nn.Linear(64, 1) 
-        
+        super(BinaryClassifier, self).__init__()
+        self.layer_1 = nn.Linear(9, 4)
+        self.layer_2 = nn.Linear(4, 8)
+        self.layer_3 = nn.Linear(8, 16)
+        self.layer_4 = nn.Linear(16, 32)
+        self.layer_out = nn.Linear(32, 1)
+
         self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(p=0.1)
-        self.batchnorm1 = nn.BatchNorm1d(32)
-        self.batchnorm2 = nn.BatchNorm1d(32)
-        
+
     def forward(self, inputs):
         x = self.relu(self.layer_1(inputs))
-        # x = self.batchnorm1(x)
         x = self.relu(self.layer_2(x))
-        # x = self.batchnorm2(x)
-        # x = self.dropout(x)
+        x = self.relu(self.layer_3(x))
+        x = self.relu(self.layer_4(x))
         x = self.layer_out(x)
-        
+
         return x
 
-def binary_acc(y_pred, y_test):
-    y_pred_tag = torch.round(torch.sigmoid(y_pred))
 
-    correct_results_sum = (y_pred_tag == y_test).sum().float()
-    acc = correct_results_sum/y_test.shape[0]
-    
-    return acc
+def calc_binary_acc(y_pred, y_test):
+    correct_results_sum = (y_pred == y_test).sum().float()
+    return correct_results_sum / len(y_test)
 
 
+# Dataset
+train_data = pd.read_csv('../Data/train.csv', sep="|")
+feature_cols = train_data.columns[train_data.columns != 'fraud']
 
-
+# Settings
 folds = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
-feats = [i for i in train_dataset.columns if i != "fraud"]
+ros = RandomOverSampler(random_state=0)
 
-# ros = RandomOverSampler(random_state=0)
-# train_feature_resampled, train_target_resampled = ros.fit_resample(train_dataset[feats], train_dataset['fraud'])
+# Oversampling
+train_feature_resampled, train_target_resampled = ros.fit_resample(train_data[feature_cols], train_data['fraud'])
 
-train_feature_resampled = train_dataset[feats]
-train_target_resampled = train_dataset['fraud']
+# Configure neural network
+epochs = 150
+batch_size = 512
+running_acc = np.zeros(epochs)
+lr = 0.001
+criterion = nn.BCEWithLogitsLoss()
+
+# Initializing before loops
 profit = 0
 f1 = 0
 
-for n_fold, (train_idx, valid_idx) in enumerate(folds.split(train_feature_resampled, train_target_resampled)):
-    train_x, train_y = train_feature_resampled.iloc[train_idx], train_target_resampled.iloc[train_idx]
-    valid_x, valid_y = train_feature_resampled.iloc[valid_idx], train_target_resampled.iloc[valid_idx]
-    
-    train_ds = torch.utils.data.TensorDataset(torch.FloatTensor(train_x.values), torch.FloatTensor(train_y.values))
-    valid_ds = torch.utils.data.TensorDataset(torch.FloatTensor(valid_x.values), torch.FloatTensor(valid_y.values))
-    train_dataloader = torch.utils.data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
-    valid_dataloader = torch.utils.data.DataLoader(valid_ds, batch_size=batch_size, shuffle=False, drop_last=False)
+for n_fold, (train_idx, validation_idx) in enumerate(folds.split(train_feature_resampled, train_target_resampled)):
+    train_x = train_feature_resampled.iloc[train_idx].values
+    train_y = train_target_resampled.iloc[train_idx].values
+    validation_x = train_feature_resampled.iloc[validation_idx].values
+    validation_y = train_target_resampled.iloc[validation_idx].values
 
+    # Training
+    train_x = torch.FloatTensor(train_x)
+    train_y = torch.FloatTensor(train_y)
+    validation_x = torch.FloatTensor(validation_x)
+    validation_y = torch.FloatTensor(validation_y)
 
-    model = binaryClassification()
-    criterion = nn.BCEWithLogitsLoss()
+    train_dataset = TensorDataset(train_x, train_y)
+    validation_dataset = TensorDataset(validation_x, validation_y)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    validation_loader = DataLoader(validation_dataset, batch_size=batch_size, shuffle=False)
+
+    model = BinaryClassifier()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+
     # Training
     for e in range(epochs):
-        print('Epoch %03d' % e)
-        for _, (x, y) in enumerate(train_dataloader):
-            optimizer.zero_grad()
-            y_pred = model(x)
+        with tqdm(total=len(train_loader), ncols=130) as progress:
+            for b, (x, y) in enumerate(train_loader):
+                y = y.unsqueeze(1)
+                prediction = model(x)
+                loss = criterion(prediction, y)
 
-            loss = criterion(y_pred, y.unsqueeze(1))
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                prediction = torch.sigmoid(prediction)
+                prediction = torch.round(prediction).int()
+                accuracy = calc_binary_acc(prediction, y)
+                progress.set_description(
+                    f'[Fold {n_fold:02d}][Epoch {e:03d}][Iteration {b:04d}][Loss = {loss:.4f}][Acc. = {accuracy * 100:.2f}%]'
+                )
+                progress.update(1)
     with torch.no_grad():
-        for _, (x, y) in enumerate(valid_dataloader):
-            valid_preds = model(x)
-            valid_preds = torch.round(torch.sigmoid(valid_preds)).int().squeeze()
-            # print(valid_preds.size())
-            # cross validation
-            # valid_preds = [1 if torch.sigmoid(i) > 0.5 else 0 for i in valid_preds]
-            profit += retailer_profit(y.int().tolist(), valid_preds.tolist())
-            f1 += f1_score(y, valid_preds)
-
+        for _, (x, y) in enumerate(validation_loader):
+            prediction = torch.sigmoid(model(x))
+            prediction = torch.round(prediction).int().squeeze()
+            # Cross validation
+            profit += retailer_profit(y.numpy(), prediction.numpy()) / folds.n_splits
+            f1 += f1_score(y.numpy(), prediction.numpy()) / folds.n_splits / len(validation_loader)
 
 # Testing
-print(f"profit:{profit/folds.n_splits}")
-print(f"f1:{f1/folds.n_splits/len(valid_dataloader)}")
-
+print(f'Profit: {profit}, f1-score: {f1}')

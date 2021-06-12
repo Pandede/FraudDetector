@@ -29,7 +29,7 @@ params = {
     'objective': 'binary',
     'metric': 'xentropy',
     'learning_rate': 0.1,
-    'n_estimator': 150,
+    'n_estimator': 200,
     'num_leaves': 4,
     'max_depth': 8,
     'bagging_fraction': 0.8,
